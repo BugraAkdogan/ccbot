@@ -14,6 +14,7 @@ Key functions:
 import json
 import structlog
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from telegram import (
@@ -38,20 +39,89 @@ logger = structlog.get_logger()
 
 _SESSIONS_PER_PAGE = 6
 
+# Minimum file size to include in resume list.
+# Sessions under this are typically automated hooks (e.g. auto-review).
+_MIN_SESSION_BYTES = 50_000
+
 _IndexParseError = (json.JSONDecodeError, OSError)
 
 
 @dataclass
 class ResumeEntry:
-    """A resumable session discovered from sessions-index."""
+    """A resumable session discovered from JSONL files."""
 
     session_id: str
     summary: str
     cwd: str
+    timestamp: str = ""  # human-readable timestamp (e.g. "02/27 10:42")
+
+
+def _extract_session_info(jsonl_path: Path) -> tuple[str, str]:
+    """Extract cwd and first user message summary from a JSONL session file.
+
+    Reads lines until it finds a cwd and a human message, then stops early
+    to avoid reading entire large files.
+    """
+    cwd = ""
+    summary = ""
+    try:
+        with jsonl_path.open("r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    d = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                # Extract cwd from any line that has it
+                if not cwd:
+                    c = d.get("cwd")
+                    if c:
+                        cwd = c
+
+                # Extract summary from first human message
+                if not summary:
+                    msg = d.get("message")
+                    if isinstance(msg, dict) and msg.get("role") in (
+                        "human",
+                        "user",
+                    ):
+                        content = msg.get("content", "")
+                        if isinstance(content, list):
+                            texts = [
+                                b.get("text", "")
+                                for b in content
+                                if isinstance(b, dict) and b.get("type") == "text"
+                            ]
+                            content = " ".join(texts)
+                        if isinstance(content, str):
+                            for cline in content.split("\n"):
+                                cline = cline.strip()
+                                if (
+                                    cline
+                                    and not cline.startswith("<")
+                                    and not cline.startswith("/")
+                                    and not cline.endswith(">")
+                                    and len(cline) > 5
+                                ):
+                                    summary = cline[:80]
+                                    break
+
+                if cwd and summary:
+                    break
+    except OSError:
+        pass
+    return cwd, summary
 
 
 def scan_all_sessions() -> list[ResumeEntry]:
-    """Scan all sessions-index files for resumable sessions.
+    """Scan JSONL session files under ~/.claude/projects/ for resumable sessions.
+
+    Falls back to sessions-index.json if present, but primarily discovers
+    sessions by scanning .jsonl files directly (Claude Code >= v2.1.31
+    no longer writes sessions-index.json).
 
     Returns entries sorted by file mtime (most recent first),
     deduplicated by session_id.
@@ -65,34 +135,81 @@ def scan_all_sessions() -> list[ResumeEntry]:
     for project_dir in config.claude_projects_path.iterdir():
         if not project_dir.is_dir():
             continue
-        index_file = project_dir / "sessions-index.json"
-        if not index_file.exists():
-            continue
+
+        # Derive the original project path from the directory name.
+        # Claude Code encodes paths as e.g. "-root" for /root,
+        # "-root-repos-myproject" for /root/repos/myproject.
+        dir_name = project_dir.name
+        if dir_name == "-":
+            original_path = "/"
+        elif dir_name.startswith("-"):
+            original_path = "/" + dir_name[1:].replace("-", "/")
+        else:
+            original_path = ""
+
+        # Primary: scan .jsonl files directly
         try:
-            index_data = json.loads(index_file.read_text(encoding="utf-8"))
-        except _IndexParseError:
-            continue
+            jsonl_files = sorted(project_dir.glob("*.jsonl"))
+        except OSError:
+            jsonl_files = []
 
-        original_path = index_data.get("originalPath", "")
-        for entry in index_data.get("entries", []):
-            session_id = entry.get("sessionId", "")
-            full_path = entry.get("fullPath", "")
-            if not session_id or not full_path or session_id in seen_ids:
-                continue
-
-            file_path = Path(full_path)
-            if not file_path.exists():
+        for jsonl_file in jsonl_files:
+            session_id = jsonl_file.stem
+            if session_id in seen_ids:
                 continue
 
             try:
-                mtime = file_path.stat().st_mtime
+                stat = jsonl_file.stat()
+                mtime = stat.st_mtime
+                fsize = stat.st_size
             except OSError:
-                mtime = 0.0
+                continue
 
-            cwd = entry.get("projectPath", original_path)
-            summary = entry.get("summary", "") or session_id[:12]
+            # Skip small sessions (automated hooks, auto-reviews)
+            if fsize < _MIN_SESSION_BYTES:
+                continue
+
+            cwd, summary = _extract_session_info(jsonl_file)
+            if not cwd:
+                cwd = original_path
+            if not summary:
+                summary = session_id[:12]
+
+            ts = datetime.fromtimestamp(mtime).strftime("%m/%d %H:%M")
             seen_ids.add(session_id)
-            candidates.append((mtime, ResumeEntry(session_id, summary, cwd)))
+            candidates.append(
+                (mtime, ResumeEntry(session_id, summary, cwd, timestamp=ts))
+            )
+
+        # Fallback: also check sessions-index.json for any entries not
+        # found via JSONL scan (e.g. older sessions with deleted files)
+        index_file = project_dir / "sessions-index.json"
+        if index_file.exists():
+            try:
+                index_data = json.loads(index_file.read_text(encoding="utf-8"))
+            except _IndexParseError:
+                continue
+
+            idx_original = index_data.get("originalPath", "")
+            for entry in index_data.get("entries", []):
+                session_id = entry.get("sessionId", "")
+                full_path = entry.get("fullPath", "")
+                if not session_id or session_id in seen_ids:
+                    continue
+                if full_path and not Path(full_path).exists():
+                    continue
+
+                try:
+                    mtime = Path(full_path).stat().st_mtime if full_path else 0.0
+                except OSError:
+                    mtime = 0.0
+
+                idx_cwd = entry.get("projectPath", idx_original)
+                idx_summary = entry.get("summary", "") or session_id[:12]
+                seen_ids.add(session_id)
+                candidates.append(
+                    (mtime, ResumeEntry(session_id, idx_summary, idx_cwd))
+                )
 
     candidates.sort(key=lambda c: c[0], reverse=True)
     return [entry for _, entry in candidates]
@@ -125,7 +242,9 @@ def _build_resume_keyboard(
                     )
                 ]
             )
-        label = entry.get("summary", "")[:40] or entry["session_id"][:12]
+        ts = entry.get("timestamp", "")
+        summary_text = entry.get("summary", "")[:32] or entry["session_id"][:12]
+        label = f"{ts}  {summary_text}" if ts else summary_text
         rows.append(
             [
                 InlineKeyboardButton(
@@ -193,7 +312,12 @@ async def resume_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     session_dicts = [
-        {"session_id": s.session_id, "summary": s.summary, "cwd": s.cwd}
+        {
+            "session_id": s.session_id,
+            "summary": s.summary,
+            "cwd": s.cwd,
+            "timestamp": s.timestamp,
+        }
         for s in sessions
     ]
     if context.user_data is not None:
@@ -309,15 +433,8 @@ async def _handle_pick(
     if chat and chat.type in ("group", "supergroup"):
         session_manager.set_group_chat_id(user_id, thread_id, chat.id)
 
-    # Rename topic to match the window
-    try:
-        await context.bot.edit_forum_topic(
-            chat_id=session_manager.resolve_chat_id(user_id, thread_id),
-            message_thread_id=thread_id,
-            name=created_wname,
-        )
-    except TelegramError as e:
-        logger.debug("Failed to rename topic: %s", e)
+    # Patched: skip topic rename to preserve user's topic name.
+    pass
 
     summary_short = picked.get("summary", "")[:40]
     await safe_edit(
