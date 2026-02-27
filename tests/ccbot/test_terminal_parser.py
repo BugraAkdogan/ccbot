@@ -365,6 +365,53 @@ class TestExtractInteractiveContent:
         assert result.name == "PermissionPrompt"
         assert "requires approval" in result.content
 
+    def test_numbered_permission_prompt_with_esc_hint(self):
+        """New Claude Code format: numbered options with (esc) embedded in last option."""
+        pane = (
+            "  Allow Fetch for link.850it.com?\n"
+            "\n"
+            " ❯ 1. Yes\n"
+            "   2. Yes, and don't ask again for link.850it.com\n"
+            "   3. No, and tell Claude what to do differently (esc)\n"
+        )
+        result = extract_interactive_content(pane)
+        assert result is not None
+        assert result.name == "PermissionPrompt"
+        assert "Allow Fetch for link.850it.com?" in result.content
+        assert "(esc)" in result.content
+
+    def test_numbered_mcp_permission_prompt(self):
+        """MCP tool permission with numbered options."""
+        pane = (
+            "  Allow sequential-thinking - sequentialthinking for this session?\n"
+            "\n"
+            " ❯ 1. Yes\n"
+            "   2. Yes, and don't ask again for sequential-thinking\n"
+            "   3. No, and tell Claude what to do differently (esc)\n"
+        )
+        result = extract_interactive_content(pane)
+        assert result is not None
+        assert result.name == "PermissionPrompt"
+
+    def test_numbered_permission_with_chrome_below(self):
+        """Permission prompt with terminal chrome (separator + statusline) below."""
+        pane = (
+            "  Allow Fetch for link.850it.com?\n"
+            "\n"
+            " ❯ 1. Yes\n"
+            "   2. Yes, and don't ask again for link.850it.com\n"
+            "   3. No, and tell Claude what to do differently (esc)\n"
+            "────────────────────────────────────────────────\n"
+            "❯ \n"
+            "────────────────────────────────────────────────\n"
+            "  [Opus 4.6] ▓▓▓▓░░░░░░ 59% | $5.11\n"
+        )
+        result = extract_interactive_content(pane)
+        assert result is not None
+        assert result.name == "PermissionPrompt"
+        # Should not include the chrome below
+        assert "Opus 4.6" not in result.content
+
     def test_bash_command_requires_approval_no_cursor(self):
         pane = (
             "  Bash command\n"

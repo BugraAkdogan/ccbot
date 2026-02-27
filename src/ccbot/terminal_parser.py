@@ -94,9 +94,13 @@ UI_PATTERNS: list[UIPattern] = [
             re.compile(r"^\s*Do you want to make this edit"),
             re.compile(r"^\s*Network request outside of sandbox"),
             re.compile(r"^\s*This command requires approval"),
-            re.compile(r"^\s*Allow .+ to"),
+            re.compile(r"^\s*Allow .+\b(to|for)\b"),
         ),
-        bottom=(re.compile(r"^\s*Esc to cancel"),),
+        bottom=(
+            re.compile(r"^\s*Esc to cancel"),
+            # Numbered permission options: "3. No, ... (esc)"
+            re.compile(r"\(esc\)\s*$"),
+        ),
         context_above=10,
     ),
     UIPattern(
@@ -133,6 +137,8 @@ UI_PATTERNS: list[UIPattern] = [
             re.compile(r"^\s*Esc to (cancel|exit)"),
             re.compile(r"^\s*Enter to (select|confirm|continue)"),
             re.compile(r"^\s*ctrl-g to edit"),
+            # Numbered permission/selection options: "N. ... (esc)"
+            re.compile(r"\(esc\)\s*$"),
         ),
         min_gap=1,
         context_above=30,
