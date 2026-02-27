@@ -43,6 +43,10 @@ INTERACTIVE_KEY_MAP: dict[str, tuple[str, bool]] = {
 
 # Answer-toast labels for interactive key callbacks
 INTERACTIVE_KEY_LABELS: dict[str, str] = {
+    CB_ASK_UP: "\u2191",
+    CB_ASK_DOWN: "\u2193",
+    CB_ASK_LEFT: "\u2190",
+    CB_ASK_RIGHT: "\u2192",
     CB_ASK_ESC: "\u238b Esc",
     CB_ASK_ENTER: "\u23ce Enter",
     CB_ASK_SPACE: "\u2423 Space",
@@ -94,9 +98,14 @@ async def handle_interactive_callback(
             await tmux_manager.send_keys(
                 w.window_id, tmux_key, enter=False, literal=False
             )
+            # Answer first for instant feedback, then refresh after delay
+            await query.answer(INTERACTIVE_KEY_LABELS.get(cb_prefix, ""))
             if refresh_ui:
-                await asyncio.sleep(0.5)
+                # Enter/Space may trigger UI transitions — give Claude more time
+                delay = 1.5 if cb_prefix in (CB_ASK_ENTER, CB_ASK_SPACE) else 0.8
+                await asyncio.sleep(delay)
                 await handle_interactive_ui(context.bot, user_id, window_id, thread_id)
             else:
                 await clear_interactive_msg(user_id, context.bot, thread_id)
+            return
         await query.answer(INTERACTIVE_KEY_LABELS.get(cb_prefix, ""))
