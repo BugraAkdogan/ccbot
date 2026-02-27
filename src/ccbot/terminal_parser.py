@@ -295,8 +295,11 @@ STATUS_SPINNERS = frozenset(["·", "✻", "✽", "✶", "✳", "✢"])
 # Box-drawing range U+2500–U+257F and other known non-spinner symbols
 _BRAILLE_START = 0x2800
 _BRAILLE_END = 0x28FF
-_NON_SPINNER_RANGES = ((0x2500, 0x257F),)  # box-drawing characters
-_NON_SPINNER_CHARS = frozenset("─│┌┐└┘├┤┬┴┼═║╔╗╚╝╠╣╦╩╬>|+<=~")
+_NON_SPINNER_RANGES = (
+    (0x2500, 0x257F),  # box-drawing characters
+    (0x2580, 0x259F),  # block elements (▀▁▂▃▄▅▆▇█▉▊▋▌▍▎▏▐░▒▓)
+)
+_NON_SPINNER_CHARS = frozenset("─│┌┐└┘├┤┬┴┼═║╔╗╚╝╠╣╦╩╬>|+<=~⏵⏴⏶⏷")
 
 # Unicode categories that spinner characters typically belong to.
 # So = Symbol Other (✻, ✽, ✶, ✳, ✢, ☐, ✔, ☒)

@@ -150,6 +150,10 @@ class SessionManager:
         default_factory=dict, repr=False
     )
 
+    # Windows about to be bound (prevents auto-topic creation race condition).
+    # Set before creating a window; cleared after bind_thread.
+    _pending_binds: set[str] = field(default_factory=set, repr=False)
+
     # Delegated persistence (not serialized)
     _persistence: StatePersistence = field(default=None, repr=False, init=False)  # type: ignore[assignment]
 
@@ -715,6 +719,20 @@ class SessionManager:
         self.user_window_offsets[user_id][window_id] = offset
         self._save_state()
 
+    # --- Pending bind management (auto-topic race prevention) ---
+
+    def mark_pending_bind(self, window_id: str) -> None:
+        """Mark a window as about to be bound (skip auto-topic creation)."""
+        self._pending_binds.add(window_id)
+
+    def clear_pending_bind(self, window_id: str) -> None:
+        """Clear pending bind marker after binding completes."""
+        self._pending_binds.discard(window_id)
+
+    def is_pending_bind(self, window_id: str) -> bool:
+        """Check if a window is about to be bound to a topic."""
+        return window_id in self._pending_binds
+
     # --- Thread binding management ---
 
     def bind_thread(
@@ -751,6 +769,7 @@ class SessionManager:
 
         self.thread_bindings[user_id][thread_id] = window_id
         self._window_to_thread[(user_id, window_id)] = thread_id
+        self._pending_binds.discard(window_id)
         if window_name:
             self.window_display_names[window_id] = window_name
         self._save_state()

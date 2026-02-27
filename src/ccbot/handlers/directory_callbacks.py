@@ -415,6 +415,8 @@ async def _handle_provider_select(
         selected_path, launch_command=launch_command
     )
     if success:
+        # Mark as pending bind BEFORE waiting for hook (prevents auto-topic race)
+        session_manager.mark_pending_bind(created_wid)
         session_manager.update_user_mru(user_id, selected_path)
         # Set cwd before set_window_provider so it's included in the save.
         # Recovery needs cwd for hookless providers (codex/gemini) that never

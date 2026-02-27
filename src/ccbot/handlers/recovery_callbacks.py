@@ -304,6 +304,9 @@ async def _create_and_bind_window(
         await query.answer("Failed")
         return False
 
+    # Mark as pending bind BEFORE waiting for hook (prevents auto-topic race)
+    session_manager.mark_pending_bind(created_wid)
+
     # Only wait for session_map if provider supports hooks (avoids 5s timeout)
     if provider.capabilities.supports_hook:
         await session_manager.wait_for_session_map_entry(created_wid)

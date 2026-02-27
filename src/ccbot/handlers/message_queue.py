@@ -442,7 +442,7 @@ def _get_idle_history(
     from .callback_data import IDLE_STATUS_TEXT
     from .command_history import get_history
 
-    if status_text != IDLE_STATUS_TEXT:
+    if not status_text.startswith(IDLE_STATUS_TEXT):
         return None
     return get_history(user_id, thread_id_or_0, limit=2) or None
 

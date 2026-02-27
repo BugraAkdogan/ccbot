@@ -727,7 +727,12 @@ async def _handle_new_window(event: NewWindowEvent, bot: Bot) -> None:
     unique group chat, binds all users in that chat.
     """
 
-    # Check if this window is already bound to any topic
+    # Check if this window is already bound or about to be bound (e.g. /resume)
+    if session_manager.is_pending_bind(event.window_id):
+        logger.debug(
+            "New window %s has pending bind, skipping topic creation", event.window_id
+        )
+        return
     for _, _, bound_wid in session_manager.iter_thread_bindings():
         if bound_wid == event.window_id:
             logger.debug(

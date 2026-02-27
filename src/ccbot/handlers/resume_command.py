@@ -373,6 +373,8 @@ async def _create_resume_window(
         cwd, agent_args=launch_args, launch_command=launch_command
     )
     if success:
+        # Mark as pending bind BEFORE waiting for hook (prevents auto-topic race)
+        session_manager.mark_pending_bind(created_wid)
         if provider.capabilities.supports_hook:
             await session_manager.wait_for_session_map_entry(created_wid)
         session_manager.set_window_provider(created_wid, provider.capabilities.name)
