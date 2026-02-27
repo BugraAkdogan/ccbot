@@ -97,14 +97,7 @@ async def _handle_bind(
     clear_window_picker_state(context.user_data)
     session_manager.bind_thread(user_id, thread_id, selected_wid, window_name=display)
 
-    try:
-        await context.bot.edit_forum_topic(
-            chat_id=session_manager.resolve_chat_id(user_id, thread_id),
-            message_thread_id=thread_id,
-            name=display,
-        )
-    except TelegramError as e:
-        logger.debug("Failed to rename topic: %s", e)
+    # Topic name is preserved — user controls topic names, not ccbot.
 
     await safe_edit(
         query,

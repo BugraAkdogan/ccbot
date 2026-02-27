@@ -442,14 +442,7 @@ async def _handle_provider_select(
                 user_id, pending_thread_id, created_wid, window_name=created_wname
             )
 
-            try:
-                await context.bot.edit_forum_topic(
-                    chat_id=session_manager.resolve_chat_id(user_id, pending_thread_id),
-                    message_thread_id=pending_thread_id,
-                    name=created_wname,
-                )
-            except TelegramError as e:
-                logger.debug("Failed to rename topic: %s", e)
+            # Topic name is preserved — user controls topic names, not ccbot.
 
             await safe_edit(
                 query,
