@@ -43,6 +43,7 @@ from ..providers import get_provider_for_window
 from ..providers.base import StatusUpdate
 from ..session import session_manager
 from ..session_monitor import get_active_monitor
+from ..terminal_parser import extract_statusline
 from ..tmux_manager import tmux_manager
 from .interactive_ui import (
     clear_interactive_msg,
@@ -600,6 +601,22 @@ async def update_status_message(
             display_status = status_line
             if subagent_count:
                 display_status = f"{status_line} ({subagent_count} subagent{'s' if subagent_count > 1 else ''})"
+
+            # Append context % from Claude Code statusline if available
+            sl = extract_statusline(pane_text)
+            if sl:
+                import re
+
+                pct_match = re.search(r"(\d+)%", sl)
+                cost_match = re.search(r"\$[\d.]+", sl)
+                suffix_parts = []
+                if pct_match:
+                    suffix_parts.append(f"{pct_match.group(1)}% ctx")
+                if cost_match:
+                    suffix_parts.append(cost_match.group(0))
+                if suffix_parts:
+                    display_status = f"{display_status} · {' · '.join(suffix_parts)}"
+
             await enqueue_status_update(
                 bot,
                 user_id,

@@ -170,6 +170,30 @@ def discover_cc_commands(claude_dir: Path | None = None) -> list[CCCommand]:
     # 3. Custom commands
     commands_dir = claude_dir / "commands"
     if commands_dir.is_dir():
+        # 3a. Standalone commands: {commands_dir}/*.md → /{stem}
+        try:
+            root_md_files = sorted(commands_dir.glob("*.md"))
+        except OSError:
+            root_md_files = []
+        for cmd_file in root_md_files:
+            if cmd_file.name.startswith("."):
+                continue
+            name = cmd_file.stem
+            tg_name = _sanitize_telegram_name(name)
+            if not tg_name:
+                continue
+            fm = parse_frontmatter(cmd_file)
+            desc = fm.get("description", f"↗ /{name}")
+            commands.append(
+                CCCommand(
+                    name=name,
+                    telegram_name=tg_name,
+                    description=_cc_desc(desc),
+                    source="command",
+                )
+            )
+
+        # 3b. Grouped commands: {commands_dir}/{group}/*.md → /{group}:{stem}
         for group_dir in _safe_iterdir(commands_dir):
             if not group_dir.is_dir() or group_dir.name.startswith("."):
                 continue

@@ -518,6 +518,51 @@ def strip_pane_chrome(lines: list[str]) -> list[str]:
     return lines
 
 
+def extract_statusline(pane_text: str) -> str | None:
+    """Extract the Claude Code statusline content from below the bottom chrome.
+
+    The statusline sits below the last separator::
+
+        ────────────────────────  (separator)
+        ❯                        (prompt)
+        ────────────────────────  (separator)
+          [Opus 4.6] ▓▓▓▓░░░░░░ 34% | $1.23
+
+    Returns the statusline text (stripped of ANSI codes), or None if not found.
+    """
+    if not pane_text:
+        return None
+
+    lines = pane_text.strip().split("\n")
+
+    # Find the last separator, then grab the line(s) below it
+    last_sep_idx = None
+    for i in range(len(lines) - 1, max(len(lines) - 15, -1), -1):
+        if _is_separator(lines[i]):
+            last_sep_idx = i
+            break
+
+    if last_sep_idx is None:
+        return None
+
+    # Collect non-empty lines below the last separator
+    below = []
+    for i in range(last_sep_idx + 1, len(lines)):
+        line = lines[i].strip()
+        if line and not line.startswith("esc ") and not line.startswith("? "):
+            below.append(line)
+
+    if not below:
+        return None
+
+    # Return the first line that looks like a statusline (contains % or model name)
+    for line in below:
+        if "%" in line or "[" in line:
+            return line
+
+    return None
+
+
 def extract_bash_output(pane_text: str, command: str) -> str | None:
     """Extract ``!`` command output from a captured tmux pane.
 
