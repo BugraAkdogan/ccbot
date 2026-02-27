@@ -422,11 +422,12 @@ class TestParseWithPyte:
         result = _parse_with_pyte("@0", pane_text, 200, 50)
         assert result is None
 
-    def test_screen_buffer_cached_per_window(self) -> None:
+    def test_screen_buffer_created_as_fallback(self) -> None:
         from ccbot.handlers.status_polling import _parse_with_pyte, _screen_buffers
 
-        sep = "─" * 30
-        pane_text = f"Output\n✻ Working\n{sep}\n"
+        # Text with no status/UI — ANSI-strip path finds nothing,
+        # pyte fallback is attempted (buffer created)
+        pane_text = "Just some output text\n$\n"
         _parse_with_pyte("@0", pane_text, 200, 50)
         assert "@0" in _screen_buffers
 

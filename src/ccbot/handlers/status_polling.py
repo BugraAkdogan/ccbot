@@ -26,6 +26,7 @@ Key components:
 
 import asyncio
 import contextlib
+import re
 import structlog
 import time
 from pathlib import Path
@@ -506,34 +507,42 @@ async def _handle_no_status(
         _clear_autoclose_if_active(user_id, thread_id)
 
 
+# Regex to strip ANSI escape sequences — SGR, CSI, OSC, charset designators.
+_ANSI_STRIP_RE = re.compile(
+    r"\x1b\[[0-9;]*[A-Za-z]"  # CSI sequences (color, cursor, etc.)
+    r"|\x1b\][^\x07]*(?:\x07|\x1b\\)"  # OSC sequences (title, etc.)
+    r"|\x1b[()][AB012]"  # Charset designators
+)
+
+
+def _strip_ansi(text: str) -> str:
+    """Strip ANSI escape sequences, preserving unicode characters."""
+    return _ANSI_STRIP_RE.sub("", text)
+
+
 def _parse_with_pyte(
     window_id: str, ansi_text: str, columns: int, rows: int
 ) -> StatusUpdate | None:
-    """Try pyte-based screen parsing for status and interactive UI detection.
+    """Parse ANSI-captured terminal text for status and interactive UI.
 
-    Feeds ANSI terminal text into a ScreenBuffer with actual pane dimensions,
-    then uses the screen-based parsers. Returns a StatusUpdate or None if
-    nothing detected.
-
-    Requires ANSI text (from capture_pane_raw) — plain text with \\n-only line
-    breaks renders incorrectly because pyte treats LF without CR as cursor-down
-    without returning to column 0.
+    Strips ANSI codes (preserving unicode characters like ✽ that plain
+    capture degrades to ASCII *) and uses regex-based parsers. Also tries
+    pyte-based rendering for interactive UI detection as a secondary path.
     """
     from ..screen_buffer import ScreenBuffer
     from ..terminal_parser import (
+        extract_interactive_content,
         format_status_display,
         parse_from_screen,
-        parse_status_from_screen,
+        parse_status_line,
     )
 
-    buf = _get_screen_buffer(window_id, columns, rows)
-    if not isinstance(buf, ScreenBuffer):
-        return None
+    # Primary path: strip ANSI codes and use regex parsers directly.
+    # This preserves unicode spinner chars (✽) that tmux plain capture
+    # degrades to ASCII (*), while keeping correct line breaks.
+    clean_text = _strip_ansi(ansi_text)
 
-    buf.feed(ansi_text)
-
-    # Check interactive UI first (takes precedence)
-    interactive = parse_from_screen(buf)
+    interactive = extract_interactive_content(clean_text)
     if interactive:
         return StatusUpdate(
             raw_text=interactive.content,
@@ -542,19 +551,31 @@ def _parse_with_pyte(
             ui_type=interactive.name,
         )
 
-    # Check status line
-    raw_status = parse_status_from_screen(buf)
+    raw_status = parse_status_line(clean_text, pane_rows=rows)
     if raw_status:
         return StatusUpdate(
             raw_text=raw_status,
             display_label=format_status_display(raw_status),
         )
 
+    # Secondary path: pyte-based rendering (handles cursor positioning)
+    buf = _get_screen_buffer(window_id, columns, rows)
+    if isinstance(buf, ScreenBuffer):
+        buf.feed(ansi_text)
+        interactive = parse_from_screen(buf)
+        if interactive:
+            return StatusUpdate(
+                raw_text=interactive.content,
+                display_label=interactive.name,
+                is_interactive=True,
+                ui_type=interactive.name,
+            )
+
     return None
 
 
 async def _try_pyte_parse(window_id: str, tmux_window_id: str) -> StatusUpdate | None:
-    """Attempt pyte-based terminal parsing with ANSI-captured pane content."""
+    """Attempt ANSI-aware terminal parsing with ANSI-captured pane content."""
     raw_capture = await tmux_manager.capture_pane_raw(tmux_window_id)
     if not raw_capture:
         return None
