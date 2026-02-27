@@ -178,6 +178,7 @@ class TestWindowRenameSync:
             mock_window.pane_current_command = "node"
             mock_tm.find_window_by_id = AsyncMock(return_value=mock_window)
             mock_tm.capture_pane = AsyncMock(return_value="some output")
+            mock_tm.capture_pane_raw = AsyncMock(return_value=None)
             mock_tm.get_pane_title = AsyncMock(return_value="")
             mock_sm.resolve_chat_id.return_value = -100
             mock_sm.get_display_name.return_value = "old-name"
@@ -212,6 +213,7 @@ class TestWindowRenameSync:
             mock_window.pane_current_command = "node"
             mock_tm.find_window_by_id = AsyncMock(return_value=mock_window)
             mock_tm.capture_pane = AsyncMock(return_value="some output")
+            mock_tm.capture_pane_raw = AsyncMock(return_value=None)
             mock_tm.get_pane_title = AsyncMock(return_value="")
             mock_sm.resolve_chat_id.return_value = -100
             mock_sm.get_display_name.return_value = "myproject"
@@ -382,7 +384,7 @@ class TestParseWithPyte:
 
         sep = "─" * 30
         pane_text = f"Some output\n✻ Reading file src/main.py\n{sep}\n"
-        result = _parse_with_pyte("@0", pane_text)
+        result = _parse_with_pyte("@0", pane_text, 200, 50)
         assert result is not None
         assert result.raw_text == "Reading file src/main.py"
         assert result.display_label == "\U0001f4d6 reading\u2026"
@@ -393,7 +395,7 @@ class TestParseWithPyte:
 
         sep = "─" * 30
         pane_text = f"Output\n⠋ Thinking about things\n{sep}\n"
-        result = _parse_with_pyte("@0", pane_text)
+        result = _parse_with_pyte("@0", pane_text, 200, 50)
         assert result is not None
         assert result.raw_text == "Thinking about things"
         assert result.is_interactive is False
@@ -408,7 +410,7 @@ class TestParseWithPyte:
             "  ─────────────────────────────────\n"
             "  ctrl-g to edit in vim\n"
         )
-        result = _parse_with_pyte("@0", pane_text)
+        result = _parse_with_pyte("@0", pane_text, 200, 50)
         assert result is not None
         assert result.is_interactive is True
         assert result.ui_type == "ExitPlanMode"
@@ -417,7 +419,7 @@ class TestParseWithPyte:
         from ccbot.handlers.status_polling import _parse_with_pyte
 
         pane_text = "$ echo hello\nhello\n$\n"
-        result = _parse_with_pyte("@0", pane_text)
+        result = _parse_with_pyte("@0", pane_text, 200, 50)
         assert result is None
 
     def test_screen_buffer_cached_per_window(self) -> None:
@@ -425,10 +427,10 @@ class TestParseWithPyte:
 
         sep = "─" * 30
         pane_text = f"Output\n✻ Working\n{sep}\n"
-        _parse_with_pyte("@0", pane_text)
+        _parse_with_pyte("@0", pane_text, 200, 50)
         assert "@0" in _screen_buffers
 
-        _parse_with_pyte("@1", pane_text)
+        _parse_with_pyte("@1", pane_text, 200, 50)
         assert "@1" in _screen_buffers
         assert "@0" in _screen_buffers
 
@@ -442,7 +444,7 @@ class TestParseWithPyte:
             "  Allow write to /tmp/foo\n"
             "  Esc to cancel\n"
         )
-        result = _parse_with_pyte("@0", pane_text)
+        result = _parse_with_pyte("@0", pane_text, 200, 50)
         assert result is not None
         assert result.is_interactive is True
         assert result.ui_type == "PermissionPrompt"
@@ -466,7 +468,8 @@ class TestPyteFallbackInUpdateStatus:
                 return_value=make_mock_provider(has_status=True),
             ) as mock_get_provider,
             patch(
-                "ccbot.handlers.status_polling._parse_with_pyte",
+                "ccbot.handlers.status_polling._try_pyte_parse",
+                new_callable=AsyncMock,
                 return_value=None,
             ),
         ):
@@ -512,7 +515,8 @@ class TestPyteFallbackInUpdateStatus:
                 return_value=make_mock_provider(has_status=True),
             ) as mock_get_provider,
             patch(
-                "ccbot.handlers.status_polling._parse_with_pyte",
+                "ccbot.handlers.status_polling._try_pyte_parse",
+                new_callable=AsyncMock,
                 return_value=pyte_status,
             ),
         ):
@@ -745,7 +749,8 @@ class TestActiveStatusCancelsIdleTimer:
                 return_value=make_mock_provider(has_status=True),
             ),
             patch(
-                "ccbot.handlers.status_polling._parse_with_pyte",
+                "ccbot.handlers.status_polling._try_pyte_parse",
+                new_callable=AsyncMock,
                 return_value=pyte_status,
             ),
         ):

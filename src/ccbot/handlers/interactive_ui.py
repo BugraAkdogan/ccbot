@@ -187,17 +187,39 @@ async def _capture_interactive_content(
 ) -> tuple[str, str] | None:
     """Capture pane and extract interactive UI content.
 
+    Uses pyte-based parsing first (ANSI text → ScreenBuffer → pattern match),
+    then falls back to provider regex parsing on plain text.
+
     Returns (ui_name, text) if an interactive UI is detected, None otherwise.
     """
     w = await tmux_manager.find_window_by_id(window_id)
     if not w:
         return None
 
+    from ..screen_buffer import ScreenBuffer
+    from ..terminal_parser import extract_interactive_content, parse_from_screen
+
+    # Try pyte-based parsing first (more reliable with ANSI text)
+    raw_capture = await tmux_manager.capture_pane_raw(w.window_id)
+    if raw_capture:
+        ansi_text, columns, rows = raw_capture
+        screen = ScreenBuffer(columns=columns, rows=rows)
+        screen.feed(ansi_text)
+        interactive = parse_from_screen(screen)
+        if interactive:
+            return interactive.name, interactive.content
+
+    # Fallback to plain text regex parsing
     pane_text = await tmux_manager.capture_pane(w.window_id)
     if not pane_text:
         logger.debug("No pane text captured for window_id %s", window_id)
         return None
 
+    interactive = extract_interactive_content(pane_text)
+    if interactive:
+        return interactive.name, interactive.content
+
+    # Final fallback to provider-specific parsing
     provider = get_provider_for_window(window_id)
     pane_title = ""
     if provider.capabilities.uses_pane_title:

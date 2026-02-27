@@ -93,8 +93,9 @@ _has_seen_status: set[str] = set()
 _TYPING_INTERVAL = 4.0
 _last_typing_sent: dict[tuple[int, int], float] = {}
 
-# Idle status auto-clear: show "✓ Ready" briefly, then delete the message.
-_IDLE_CLEAR_DELAY = 10.0  # seconds to display idle status before clearing
+# Idle status auto-clear: show "✓ Ready" with screenshot button, then delete.
+# Longer delay ensures user has time to see the status and take a screenshot.
+_IDLE_CLEAR_DELAY = 300.0  # 5 minutes — user needs persistent screenshot access
 _idle_clear_timers: dict[tuple[int, int], tuple[str, float]] = {}
 # (user_id, thread_id) -> (window_id, monotonic_time_entered_idle)
 
@@ -505,12 +506,18 @@ async def _handle_no_status(
         _clear_autoclose_if_active(user_id, thread_id)
 
 
-def _parse_with_pyte(window_id: str, pane_text: str) -> StatusUpdate | None:
+def _parse_with_pyte(
+    window_id: str, ansi_text: str, columns: int, rows: int
+) -> StatusUpdate | None:
     """Try pyte-based screen parsing for status and interactive UI detection.
 
-    Feeds the plain pane text into a ScreenBuffer sized for a standard
-    terminal, then uses the screen-based parsers. Returns a StatusUpdate
-    or None if nothing detected.
+    Feeds ANSI terminal text into a ScreenBuffer with actual pane dimensions,
+    then uses the screen-based parsers. Returns a StatusUpdate or None if
+    nothing detected.
+
+    Requires ANSI text (from capture_pane_raw) — plain text with \\n-only line
+    breaks renders incorrectly because pyte treats LF without CR as cursor-down
+    without returning to column 0.
     """
     from ..screen_buffer import ScreenBuffer
     from ..terminal_parser import (
@@ -519,13 +526,11 @@ def _parse_with_pyte(window_id: str, pane_text: str) -> StatusUpdate | None:
         parse_status_from_screen,
     )
 
-    # Use a standard terminal size; pyte needs dimensions to render
-    columns, rows = 200, 50
     buf = _get_screen_buffer(window_id, columns, rows)
     if not isinstance(buf, ScreenBuffer):
         return None
 
-    buf.feed(pane_text)
+    buf.feed(ansi_text)
 
     # Check interactive UI first (takes precedence)
     interactive = parse_from_screen(buf)
@@ -546,6 +551,15 @@ def _parse_with_pyte(window_id: str, pane_text: str) -> StatusUpdate | None:
         )
 
     return None
+
+
+async def _try_pyte_parse(window_id: str, tmux_window_id: str) -> StatusUpdate | None:
+    """Attempt pyte-based terminal parsing with ANSI-captured pane content."""
+    raw_capture = await tmux_manager.capture_pane_raw(tmux_window_id)
+    if not raw_capture:
+        return None
+    ansi_text, columns, rows = raw_capture
+    return _parse_with_pyte(window_id, ansi_text, columns, rows)
 
 
 async def update_status_message(
@@ -587,9 +601,9 @@ async def update_status_message(
     interactive_window = get_interactive_window(user_id, thread_id)
     should_check_new_ui = True
 
-    # Parse terminal status: try pyte-based parsing first, fall back to regex
-    status = _parse_with_pyte(window_id, pane_text)
-
+    # Parse terminal status: try pyte-based parsing first (needs ANSI text),
+    # then fall back to regex parsing on plain text.
+    status = await _try_pyte_parse(window_id, w.window_id)
     if status is None:
         # pyte path returned nothing — fall back to provider regex parsing
         provider = get_provider_for_window(window_id)
@@ -614,8 +628,11 @@ async def update_status_message(
 
     # Check for permission prompt (interactive UI not triggered via JSONL)
     if should_check_new_ui and status is not None and status.is_interactive:
-        await handle_interactive_ui(bot, user_id, window_id, thread_id)
-        return
+        handled = await handle_interactive_ui(bot, user_id, window_id, thread_id)
+        if handled:
+            return
+        # Interactive UI detected but handler failed (send error, cooldown, etc.)
+        # Fall through to show normal status so user isn't left in the dark.
 
     # Normal status line check — use display_label for formatted text
     status_line = status.display_label if status and not status.is_interactive else None

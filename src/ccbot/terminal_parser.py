@@ -13,6 +13,8 @@ Key functions: is_interactive_ui(), extract_interactive_content(),
 parse_status_line(), strip_pane_chrome(), extract_bash_output().
 """
 
+from __future__ import annotations
+
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -95,6 +97,7 @@ UI_PATTERNS: list[UIPattern] = [
             re.compile(r"^\s*Allow .+ to"),
         ),
         bottom=(re.compile(r"^\s*Esc to cancel"),),
+        context_above=10,
     ),
     UIPattern(
         name="RestoreCheckpoint",
@@ -302,7 +305,10 @@ _NON_SPINNER_RANGES = (
     (0x2500, 0x257F),  # box-drawing characters
     (0x2580, 0x259F),  # block elements (▀▁▂▃▄▅▆▇█▉▊▋▌▍▎▏▐░▒▓)
 )
-_NON_SPINNER_CHARS = frozenset("─│┌┐└┘├┤┬┴┼═║╔╗╚╝╠╣╦╩╬>|+<=~⏵⏴⏶⏷")
+# Supplementary Multilingual Plane start — pictographic emojis, flags, etc.
+# are never spinners (e.g. 🍳 in Claude Code idle timer).
+_SMP_START = 0x10000
+_NON_SPINNER_CHARS = frozenset("─│┌┐└┘├┤┬┴┼═║╔╗╚╝╠╣╦╩╬>|+<=~⏵⏴⏶⏷❯❮")
 
 # Unicode categories that spinner characters typically belong to.
 # So = Symbol Other (✻, ✽, ✶, ✳, ✢, ☐, ✔, ☒)
@@ -327,6 +333,8 @@ def is_likely_spinner(char: str) -> bool:
     if char in _NON_SPINNER_CHARS:
         return False
     cp = ord(char)
+    if cp >= _SMP_START:
+        return False
     for start, end in _NON_SPINNER_RANGES:
         if start <= cp <= end:
             return False
