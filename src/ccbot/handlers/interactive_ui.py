@@ -235,6 +235,13 @@ async def handle_interactive_ui(
         return False
 
     ui_name, text = captured
+    # Telegram max message length is 4096; leave room for keyboard
+    if len(text) > 4000:
+        text = text[-4000:]
+        # Find first newline to start at a clean line
+        nl = text.find("\n")
+        if nl > 0:
+            text = "…\n" + text[nl + 1 :]
     ikey = (user_id, thread_id or 0)
     chat_id = session_manager.resolve_chat_id(user_id, thread_id)
     keyboard = _build_interactive_keyboard(window_id, ui_name=ui_name)
@@ -254,6 +261,11 @@ async def handle_interactive_ui(
     last_attempt = _send_cooldowns.get(ikey, 0.0)
     if now - last_attempt < _SEND_RETRY_INTERVAL:
         return False
+
+    # Clear lingering status message before showing interactive UI
+    from .message_queue import enqueue_status_update
+
+    await enqueue_status_update(bot, user_id, window_id, None, thread_id=thread_id)
 
     # Send new message
     thread_kwargs: dict[str, int] = {}

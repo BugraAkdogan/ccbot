@@ -69,18 +69,21 @@ UI_PATTERNS: list[UIPattern] = [
             re.compile(r"^\s*ctrl-g to edit in "),
             re.compile(r"^\s*Esc to (cancel|exit)"),
         ),
+        context_above=30,
     ),
     UIPattern(
         name="AskUserQuestion",
         top=(re.compile(r"^\s*←\s+[☐✔☒]"),),  # Multi-tab: no bottom needed
         bottom=(),
         min_gap=1,
+        context_above=30,
     ),
     UIPattern(
         name="AskUserQuestion",
         top=(re.compile(r"^\s*[☐✔☒]"),),  # Single-tab: bottom required
         bottom=(re.compile(r"^\s*Enter to select"),),
         min_gap=1,
+        context_above=30,
     ),
     UIPattern(
         name="PermissionPrompt",
@@ -129,7 +132,7 @@ UI_PATTERNS: list[UIPattern] = [
             re.compile(r"^\s*ctrl-g to edit"),
         ),
         min_gap=1,
-        context_above=10,
+        context_above=30,
     ),
 ]
 
