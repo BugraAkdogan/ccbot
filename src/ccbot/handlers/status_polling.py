@@ -102,6 +102,10 @@ _idle_clear_timers: dict[tuple[int, int], tuple[str, float]] = {}
 # on every poll cycle until the window becomes active again).
 _idle_status_cleared: set[str] = set()
 
+# Cached context info per window (persists across poll cycles so idle/done
+# status messages still show the last known context % and cost).
+_last_context_info: dict[str, str] = {}  # window_id -> "42% ctx · $1.23"
+
 # Transcript activity heuristic: if transcript was written to within this many
 # seconds, treat the window as active even without a terminal status signal.
 _ACTIVITY_THRESHOLD = 10.0
@@ -115,6 +119,35 @@ _startup_times: dict[
 
 # Per-window pyte ScreenBuffer for ANSI-aware parsing
 _screen_buffers: dict[str, ScreenBuffer] = {}
+
+
+def _update_context_cache(window_id: str, pane_text: str) -> str | None:
+    """Parse statusline for context % and cost, update per-window cache.
+
+    Returns the suffix string (e.g. "42% ctx · $1.23") or None.
+    """
+    import re
+
+    sl = extract_statusline(pane_text)
+    if sl:
+        pct_match = re.search(r"(\d+)%", sl)
+        cost_match = re.search(r"\$[\d.]+", sl)
+        parts = []
+        if pct_match:
+            parts.append(f"{pct_match.group(1)}% ctx")
+        if cost_match:
+            parts.append(cost_match.group(0))
+        if parts:
+            suffix = " · ".join(parts)
+            _last_context_info[window_id] = suffix
+            return suffix
+    # Statusline not available right now — return cached value
+    return _last_context_info.get(window_id)
+
+
+def _get_context_suffix(window_id: str) -> str | None:
+    """Get cached context suffix for a window without parsing."""
+    return _last_context_info.get(window_id)
 
 
 def _get_screen_buffer(window_id: str, columns: int, rows: int) -> ScreenBuffer:
@@ -202,6 +235,7 @@ def clear_seen_status(window_id: str) -> None:
     _has_seen_status.discard(window_id)
     _startup_times.pop(window_id, None)
     _idle_status_cleared.discard(window_id)
+    _last_context_info.pop(window_id, None)
 
 
 def reset_seen_status_state() -> None:
@@ -397,8 +431,12 @@ async def _transition_to_idle(
     if notif_mode not in ("muted", "errors_only"):
         from .callback_data import IDLE_STATUS_TEXT
 
+        idle_text = IDLE_STATUS_TEXT
+        ctx_suffix = _get_context_suffix(window_id)
+        if ctx_suffix:
+            idle_text = f"{idle_text} · {ctx_suffix}"
         await enqueue_status_update(
-            bot, user_id, window_id, IDLE_STATUS_TEXT, thread_id=thread_id
+            bot, user_id, window_id, idle_text, thread_id=thread_id
         )
         _start_idle_clear_timer(user_id, thread_id, window_id)
     else:
@@ -602,20 +640,10 @@ async def update_status_message(
             if subagent_count:
                 display_status = f"{status_line} ({subagent_count} subagent{'s' if subagent_count > 1 else ''})"
 
-            # Append context % from Claude Code statusline if available
-            sl = extract_statusline(pane_text)
-            if sl:
-                import re
-
-                pct_match = re.search(r"(\d+)%", sl)
-                cost_match = re.search(r"\$[\d.]+", sl)
-                suffix_parts = []
-                if pct_match:
-                    suffix_parts.append(f"{pct_match.group(1)}% ctx")
-                if cost_match:
-                    suffix_parts.append(cost_match.group(0))
-                if suffix_parts:
-                    display_status = f"{display_status} · {' · '.join(suffix_parts)}"
+            # Append context % from Claude Code statusline (cached per window)
+            ctx_suffix = _update_context_cache(window_id, pane_text)
+            if ctx_suffix:
+                display_status = f"{display_status} · {ctx_suffix}"
 
             await enqueue_status_update(
                 bot,
