@@ -236,6 +236,8 @@ async def _message_queue_worker(bot: Bot, user_id: int) -> None:
     while True:
         try:
             task = await queue.get()
+            retry_task: MessageTask | None = None
+            active_content_task: MessageTask | None = None
             try:
                 if task.task_type == "content":
                     # Try to merge consecutive content tasks
@@ -249,6 +251,7 @@ async def _message_queue_worker(bot: Bot, user_id: int) -> None:
                         # Mark merged tasks as done
                         for _ in range(merge_count):
                             queue.task_done()
+                    active_content_task = merged_task
                     await _process_content_task(bot, user_id, merged_task)
                 elif task.task_type == "status_update":
                     await _process_status_update_task(bot, user_id, task)
@@ -267,7 +270,13 @@ async def _message_queue_worker(bot: Bot, user_id: int) -> None:
                     "Flood control for user %s, pausing %ss", user_id, retry_secs
                 )
                 await asyncio.sleep(retry_secs)
-            except TelegramError, OSError:
+                # Re-queue content tasks — they must not be lost.
+                # Status updates can be dropped (a newer one will arrive).
+                if active_content_task is not None:
+                    retry_task = active_content_task
+                elif task.task_type == "content":
+                    retry_task = task
+            except (TelegramError, OSError):
                 logger.exception(
                     "Error processing message task for user %s (thread %s)",
                     user_id,
@@ -275,6 +284,12 @@ async def _message_queue_worker(bot: Bot, user_id: int) -> None:
                 )
             finally:
                 queue.task_done()
+                if retry_task is not None:
+                    await queue.put(retry_task)
+                    logger.info(
+                        "Re-queued content message for user %s after flood control",
+                        user_id,
+                    )
         except asyncio.CancelledError:
             logger.debug("Message queue worker cancelled for user %s", user_id)
             break
