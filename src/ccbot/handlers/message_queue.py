@@ -378,6 +378,7 @@ async def _process_content_task(bot: Bot, user_id: int, task: MessageTask) -> No
             bot,
             chat_id,
             part,
+            pre_converted=True,
             **_send_kwargs(task.thread_id),  # type: ignore[arg-type]
         )
 

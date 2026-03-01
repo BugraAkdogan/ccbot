@@ -65,18 +65,23 @@ async def _send_with_fallback(
     bot: Bot,
     chat_id: int,
     text: str,
+    *,
+    pre_converted: bool = False,
     **kwargs: Any,
 ) -> Message | None:
     """Send message with MarkdownV2, falling back to plain text on failure.
 
     Internal helper that handles the MarkdownV2 → plain text fallback pattern.
+    When *pre_converted* is True, *text* is already MarkdownV2-escaped
+    (skip convert_markdown, use strip_mdv2 for plain-text fallback).
     Returns the sent Message on success, None on failure.
     """
     kwargs.setdefault("link_preview_options", NO_LINK_PREVIEW)
+    mdv2_text = text if pre_converted else convert_markdown(text)
     try:
         return await bot.send_message(
             chat_id=chat_id,
-            text=convert_markdown(text),
+            text=mdv2_text,
             parse_mode="MarkdownV2",
             **kwargs,
         )
@@ -84,8 +89,9 @@ async def _send_with_fallback(
         raise
     except TelegramError:
         try:
+            plain = strip_mdv2(text) if pre_converted else text
             return await bot.send_message(
-                chat_id=chat_id, text=strip_mdv2(text), **kwargs
+                chat_id=chat_id, text=plain, **kwargs
             )
         except RetryAfter:
             raise
@@ -98,6 +104,8 @@ async def rate_limit_send_message(
     bot: Bot,
     chat_id: int,
     text: str,
+    *,
+    pre_converted: bool = False,
     **kwargs: Any,
 ) -> Message | None:
     """Rate-limited send with MarkdownV2 fallback.
@@ -105,10 +113,13 @@ async def rate_limit_send_message(
     Combines rate_limit_send() + _send_with_fallback() for convenience.
     The chat_id should be the group chat ID for forum topics, or the user ID
     for direct messages.  Use session_manager.resolve_chat_id() to obtain it.
+    When *pre_converted* is True, *text* is already MarkdownV2-escaped.
     Returns the sent Message on success, None on failure.
     """
     await rate_limit_send(chat_id)
-    return await _send_with_fallback(bot, chat_id, text, **kwargs)
+    return await _send_with_fallback(
+        bot, chat_id, text, pre_converted=pre_converted, **kwargs
+    )
 
 
 async def safe_reply(message: Message, text: str, **kwargs: Any) -> Message | None:
