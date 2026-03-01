@@ -271,7 +271,7 @@ async def _auto_create_session(
     """
     from ..config import config
     from ..providers import resolve_launch_command
-    from ..providers.registry import provider_registry
+    from ..providers.registry import registry as provider_registry
 
     selected_path = default_dir
     provider_name = config.provider_name

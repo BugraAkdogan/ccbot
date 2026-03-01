@@ -35,7 +35,7 @@ from .callback_data import (
     CB_STATUS_SCREENSHOT,
     NOTIFY_MODE_ICONS,
 )
-from .message_sender import NO_LINK_PREVIEW, rate_limit_send_message
+from .message_sender import NO_LINK_PREVIEW, rate_limit_send_message, strip_mdv2
 import contextlib
 
 # Top-level loop resilience: catch any error to keep the worker alive
@@ -336,8 +336,8 @@ async def _process_content_task(bot: Bot, user_id: int, task: MessageTask) -> No
                 raise
             except TelegramError:
                 try:
-                    # Fallback: strip markdown
-                    plain_text = task.text or full_text
+                    # Fallback: strip markdown escaping
+                    plain_text = task.text or strip_mdv2(full_text)
                     await bot.edit_message_text(
                         chat_id=chat_id,
                         message_id=edit_msg_id,
@@ -433,11 +433,11 @@ async def _convert_status_to_content(
         raise
     except TelegramError:
         try:
-            # Fallback to plain text
+            # Fallback to plain text — strip MarkdownV2 escaping
             await bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=msg_id,
-                text=content_text,
+                text=strip_mdv2(content_text),
                 reply_markup=None,
                 link_preview_options=NO_LINK_PREVIEW,
             )
