@@ -63,21 +63,13 @@ async def update_topic_emoji(
     state: str,
     display_name: str,
 ) -> None:
-    """Update topic icon to reflect session state. Never changes the topic name.
+    """Update topic icon to reflect session state. Currently disabled.
 
-    Uses icon_custom_emoji_id to set the topic icon, leaving name=None so
-    Telegram preserves the user's original topic name.
-
-    Debounces transitions: the new state must be requested consistently for
-    DEBOUNCE_SECONDS before the API call is made.
-
-    Args:
-        bot: Telegram Bot instance
-        chat_id: Group chat ID
-        thread_id: Forum topic thread ID
-        state: One of "active", "idle", "done", "dead"
-        display_name: Unused (kept for API compatibility)
+    Topic icon changes generate noisy "changed the topic icon" messages
+    in Telegram, so this is a no-op until a quieter mechanism is available.
     """
+    return
+
     if chat_id in _disabled_chats:
         return
 
