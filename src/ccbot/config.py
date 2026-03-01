@@ -92,6 +92,9 @@ class Config:
         # Provider selection
         self.provider_name: str = os.getenv("CCBOT_PROVIDER", "claude")
 
+        # Default directory for new sessions (skip directory browser)
+        self.default_dir: str = os.getenv("CCBOT_DEFAULT_DIR", "")
+
         # Directory browser: show hidden (dot) directories
         self.show_hidden_dirs: bool = os.getenv(
             "CCBOT_SHOW_HIDDEN_DIRS", ""

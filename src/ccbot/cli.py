@@ -67,6 +67,7 @@ _FLAG_TO_ENV: list[tuple[str, str]] = [
     ("autoclose_dead", "AUTOCLOSE_DEAD_MINUTES"),
     ("provider", "CCBOT_PROVIDER"),
     ("show_hidden_dirs", "CCBOT_SHOW_HIDDEN_DIRS"),
+    ("default_dir", "CCBOT_DEFAULT_DIR"),
     ("claude_config_dir", "CLAUDE_CONFIG_DIR"),
 ]
 
@@ -171,6 +172,13 @@ def apply_args_to_env(**kwargs: object) -> None:
     default=None,
     envvar="CCBOT_SHOW_HIDDEN_DIRS",
     help="Show hidden (dot) directories in directory browser.",
+)
+@click.option(
+    "--default-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    envvar="CCBOT_DEFAULT_DIR",
+    help="Default directory for new sessions (skip directory browser).",
 )
 @click.option(
     "--claude-config-dir",

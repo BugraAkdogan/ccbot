@@ -231,7 +231,14 @@ async def _handle_unbound_topic(
         await safe_reply(message, msg_text, reply_markup=keyboard)
         return True
 
-    # No unbound windows — show directory browser to create a new session
+    # No unbound windows — auto-create if default_dir set, else show browser
+    from ..config import config
+
+    if config.default_dir:
+        return await _auto_create_session(
+            user_id, thread_id, text, message, config.default_dir
+        )
+
     logger.info(
         "Unbound topic: showing directory browser (user=%d, thread=%d)",
         user_id,
@@ -247,6 +254,62 @@ async def _handle_unbound_topic(
         user_data[PENDING_THREAD_ID] = thread_id
         user_data[PENDING_THREAD_TEXT] = text
     await safe_reply(message, msg_text, reply_markup=keyboard)
+    return True
+
+
+async def _auto_create_session(
+    user_id: int,
+    thread_id: int,
+    text: str,
+    message: Message,
+    default_dir: str,
+) -> bool:
+    """Auto-create a session in default_dir with the default provider.
+
+    Skips the directory browser and provider picker entirely.
+    Returns True (always handles the unbound topic).
+    """
+    from ..config import config
+    from ..providers import resolve_launch_command
+    from ..providers.registry import provider_registry
+
+    selected_path = default_dir
+    provider_name = config.provider_name
+
+    logger.info(
+        "Auto-creating session: dir=%s, provider=%s (user=%d, thread=%d)",
+        selected_path,
+        provider_name,
+        user_id,
+        thread_id,
+    )
+
+    launch_command = resolve_launch_command(provider_name)
+    success, msg, created_wname, created_wid = await tmux_manager.create_window(
+        selected_path, launch_command=launch_command
+    )
+    if not success:
+        await safe_reply(message, f"Failed to create session: {msg}")
+        return True
+
+    session_manager.mark_pending_bind(created_wid)
+    session_manager.update_user_mru(user_id, selected_path)
+    window_state = session_manager.get_window_state(created_wid)
+    window_state.cwd = selected_path
+    session_manager.set_window_provider(created_wid, provider_name)
+
+    if provider_registry.get(provider_name).capabilities.supports_hook:
+        await session_manager.wait_for_session_map_entry(created_wid)
+
+    session_manager.bind_thread(
+        user_id, thread_id, created_wid, window_name=created_wname
+    )
+
+    # Forward the user's message to the new session
+    send_ok, send_msg = await session_manager.send_to_window(created_wid, text)
+    if not send_ok:
+        logger.warning("Failed to forward text to new session: %s", send_msg)
+
     return True
 
 
