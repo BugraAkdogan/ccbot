@@ -1,5 +1,6 @@
 """Tests for forward_command_handler CC command resolution."""
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -220,3 +221,50 @@ class TestForwardCommandResolution:
         await forward_command_handler(update, _make_context())
 
         self.mock_sm.send_to_window.assert_not_called()
+
+    async def test_codex_status_sends_snapshot_reply(self) -> None:
+        self.mock_sm.get_window_state.return_value = SimpleNamespace(
+            transcript_path="/tmp/codex.jsonl",
+            session_id="sess-1",
+            cwd="/work/repo",
+        )
+        codex_provider = SimpleNamespace(capabilities=SimpleNamespace(name="codex"))
+
+        with (
+            patch("ccbot.bot.get_cc_name", return_value="/status"),
+            patch("ccbot.bot.get_provider_for_window", return_value=codex_provider),
+            patch(
+                "ccbot.bot.build_codex_status_snapshot",
+                return_value="Codex status snapshot body",
+            ) as mock_snapshot,
+        ):
+            update = _make_update(text="/status")
+            await forward_command_handler(update, _make_context())
+
+        self.mock_sm.send_to_window.assert_called_once_with("@1", "/status")
+        mock_snapshot.assert_called_once_with(
+            "/tmp/codex.jsonl",
+            display_name="project",
+            session_id="sess-1",
+            cwd="/work/repo",
+        )
+        assert update.message.reply_text.call_count == 2
+        assert (
+            "status snapshot body"
+            in update.message.reply_text.call_args_list[1].args[0]
+        )
+
+    async def test_status_on_non_codex_skips_snapshot(self) -> None:
+        claude_provider = SimpleNamespace(capabilities=SimpleNamespace(name="claude"))
+
+        with (
+            patch("ccbot.bot.get_cc_name", return_value="/status"),
+            patch("ccbot.bot.get_provider_for_window", return_value=claude_provider),
+            patch("ccbot.bot.build_codex_status_snapshot") as mock_snapshot,
+        ):
+            update = _make_update(text="/status")
+            await forward_command_handler(update, _make_context())
+
+        self.mock_sm.send_to_window.assert_called_once_with("@1", "/status")
+        mock_snapshot.assert_not_called()
+        assert update.message.reply_text.call_count == 1

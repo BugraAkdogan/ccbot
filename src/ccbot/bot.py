@@ -32,6 +32,7 @@ from telegram import (
     InlineKeyboardMarkup,
     InlineQueryResultArticle,
     InputTextMessageContent,
+    Message,
     Update,
 )
 from telegram.constants import ChatAction
@@ -51,9 +52,11 @@ from .providers import (
     AgentProvider,
     detect_provider_from_command,
     get_provider,
+    get_provider_for_window,
     registry,
 )
 from .config import config
+from .codex_status import build_codex_status_snapshot
 from .handlers.callback_data import (
     CB_DIR_CANCEL,
     CB_DIR_CONFIRM,
@@ -347,6 +350,9 @@ async def forward_command_handler(
 
             record_command(user.id, thread_id, cc_slash)
         await safe_reply(update.message, f"\u26a1 [{display}] Sent: {cc_slash}")
+        await _maybe_send_codex_status_snapshot(
+            update.message, window_id, display, cc_slash
+        )
         # If /clear command was sent, clear the session association
         # so we can detect the new session after first message
         if cc_slash.strip().lower() == "/clear":
@@ -368,6 +374,46 @@ async def forward_command_handler(
             clear_screen_buffer(window_id)
     else:
         await safe_reply(update.message, f"\u274c {message}")
+
+
+async def _maybe_send_codex_status_snapshot(
+    message: Message,
+    window_id: str,
+    display: str,
+    cc_slash: str,
+) -> None:
+    """Send transcript-based Codex status fallback for /status and /stats."""
+    command = cc_slash.split(None, 1)[0].lower()
+    if command not in ("/status", "/stats"):
+        return
+
+    provider = get_provider_for_window(window_id)
+    if provider.capabilities.name != "codex":
+        return
+
+    state = session_manager.get_window_state(window_id)
+    transcript_path = state.transcript_path
+    if not transcript_path:
+        await safe_reply(
+            message,
+            f"[{display}] Codex status snapshot unavailable (no transcript path).",
+        )
+        return
+
+    snapshot = build_codex_status_snapshot(
+        transcript_path,
+        display_name=display,
+        session_id=state.session_id,
+        cwd=state.cwd,
+    )
+    if snapshot:
+        await safe_reply(message, snapshot)
+        return
+
+    await safe_reply(
+        message,
+        f"[{display}] Codex status snapshot unavailable (transcript unreadable).",
+    )
 
 
 async def screenshot_command(

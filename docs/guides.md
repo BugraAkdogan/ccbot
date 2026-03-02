@@ -228,6 +228,10 @@ Each provider exposes its own slash commands to the Telegram menu. Examples:
 - **Codex**: `/model`, `/mode`, `/status`, `/diff`, `/compact`, `/mcp`...
 - **Gemini**: `/chat`, `/clear`, `/compress`, `/model`, `/memory`, `/vim`...
 
+For Codex, `/status` now sends a transcript-based fallback snapshot in Telegram
+(session/cwd/token/rate-limit summary) because some Codex builds render status
+in the terminal UI without emitting a transcript assistant message.
+
 ## Data Storage
 
 All state files live in `$CCBOT_DIR` (`~/.ccbot/` by default):
