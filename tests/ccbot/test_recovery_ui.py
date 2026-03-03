@@ -1,10 +1,12 @@
 """Tests for dead window detection and recovery UI (TASK-009 + TASK-010)."""
 
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import ccbot.bot as bot_mod
 from ccbot.bot import text_handler
 from ccbot.handlers.recovery_callbacks import (
     _SessionEntry,
@@ -347,6 +349,82 @@ class TestTextHandlerDeadWindow:
             await text_handler(update, ctx)
 
         mock_sm.unbind_thread.assert_not_called()
+
+
+class TestBotTextHandlerScopedMenu:
+    @patch("ccbot.bot.handle_text_message", new_callable=AsyncMock)
+    @patch("ccbot.bot._sync_scoped_provider_menu", new_callable=AsyncMock)
+    @patch("ccbot.bot.get_provider_for_window")
+    @patch("ccbot.bot.session_manager")
+    async def test_syncs_scoped_menu_when_thread_is_bound(
+        self,
+        mock_sm: MagicMock,
+        mock_get_provider: MagicMock,
+        mock_sync_menu: AsyncMock,
+        mock_handle_text: AsyncMock,
+        _no_group: MagicMock,
+    ) -> None:
+        provider = SimpleNamespace(capabilities=SimpleNamespace(name="codex"))
+        mock_get_provider.return_value = provider
+        mock_sm.resolve_window_for_thread.return_value = "@1"
+
+        update = _make_update()
+        ctx = _make_context()
+
+        await text_handler(update, ctx)
+
+        mock_sync_menu.assert_called_once_with(update.message, 100, provider)
+        mock_handle_text.assert_called_once_with(update, ctx)
+
+    @patch("ccbot.bot.handle_text_message", new_callable=AsyncMock)
+    @patch("ccbot.bot._sync_scoped_provider_menu", new_callable=AsyncMock)
+    @patch("ccbot.bot.session_manager")
+    async def test_skips_scoped_menu_sync_when_thread_is_unbound(
+        self,
+        mock_sm: MagicMock,
+        mock_sync_menu: AsyncMock,
+        mock_handle_text: AsyncMock,
+        _no_group: MagicMock,
+    ) -> None:
+        mock_sm.resolve_window_for_thread.return_value = None
+
+        update = _make_update()
+        ctx = _make_context()
+
+        await text_handler(update, ctx)
+
+        mock_sync_menu.assert_not_called()
+        mock_handle_text.assert_called_once_with(update, ctx)
+
+    @patch("ccbot.bot.handle_text_message", new_callable=AsyncMock)
+    @patch("ccbot.bot._sync_scoped_provider_menu", new_callable=AsyncMock)
+    @patch("ccbot.bot.get_provider_for_window")
+    @patch("ccbot.bot.session_manager")
+    async def test_cached_chat_user_still_resolves_provider_context(
+        self,
+        mock_sm: MagicMock,
+        mock_get_provider: MagicMock,
+        mock_sync_menu: AsyncMock,
+        mock_handle_text: AsyncMock,
+        _no_group: MagicMock,
+    ) -> None:
+        bot_mod._scoped_provider_menu.clear()
+        try:
+            bot_mod._scoped_provider_menu[(-100999, 100)] = "codex"
+            provider = SimpleNamespace(capabilities=SimpleNamespace(name="codex"))
+            mock_get_provider.return_value = provider
+            mock_sm.resolve_window_for_thread.return_value = "@1"
+            update = _make_update()
+            update.message.chat.id = -100999
+            ctx = _make_context()
+
+            await text_handler(update, ctx)
+
+            mock_sm.resolve_window_for_thread.assert_called_once_with(100, 42)
+            mock_sync_menu.assert_called_once_with(update.message, 100, provider)
+            mock_handle_text.assert_called_once_with(update, ctx)
+        finally:
+            bot_mod._scoped_provider_menu.clear()
 
 
 class TestRecoveryFreshCallback:

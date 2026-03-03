@@ -1210,7 +1210,6 @@ def _write_codex_session(
 
 
 class TestCodexDiscoverTranscript:
-
     def test_finds_matching_transcript(self, tmp_path: Path) -> None:
         sessions_dir = tmp_path / ".codex" / "sessions"
         fpath = _write_codex_session(
