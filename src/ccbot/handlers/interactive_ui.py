@@ -311,6 +311,9 @@ async def handle_interactive_ui(
         )
     except TelegramError as e:
         logger.error("Failed to send interactive UI to %s: %s", chat_id, e)
+        from .message_sender import _check_thread_not_found
+
+        _check_thread_not_found(e, thread_kwargs)
     if sent:
         _interactive_msgs[ikey] = sent.message_id
         _interactive_mode[ikey] = window_id
