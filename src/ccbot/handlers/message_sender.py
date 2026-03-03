@@ -27,6 +27,28 @@ logger = structlog.get_logger()
 # Disable link previews in all messages to reduce visual noise
 NO_LINK_PREVIEW = LinkPreviewOptions(is_disabled=True)
 
+# Stale thread tracking: thread IDs where Telegram returned "thread not found".
+# Consumed by status_poll_loop to unbind dead topics.
+_stale_thread_ids: set[int] = set()
+
+
+def pop_stale_thread_ids() -> set[int]:
+    """Return and clear all thread IDs flagged as stale (topic deleted)."""
+    result = _stale_thread_ids.copy()
+    _stale_thread_ids.clear()
+    return result
+
+
+def _check_thread_not_found(exc: TelegramError, kwargs: dict[str, Any]) -> None:
+    """If the error is 'thread not found', flag the thread_id as stale."""
+    msg = str(exc).lower()
+    if "thread not found" not in msg and "thread_not_found" not in msg:
+        return
+    thread_id = kwargs.get("message_thread_id")
+    if thread_id is not None:
+        _stale_thread_ids.add(thread_id)
+        logger.info("Flagged thread %d as stale (thread not found)", thread_id)
+
 # Regex to strip MarkdownV2 escape sequences from plain text fallback.
 # Matches a backslash followed by any MarkdownV2 special character.
 _MDV2_STRIP_RE = re.compile(r"\\([_*\[\]()~`>#+\-=|{}.!\\])")
@@ -96,6 +118,7 @@ async def _send_with_fallback(
         except RetryAfter:
             raise
         except TelegramError as e:
+            _check_thread_not_found(e, kwargs)
             logger.warning("Failed to send message to %s: %s", chat_id, e)
             return None
 
@@ -149,6 +172,8 @@ async def safe_edit(target: Any, text: str, **kwargs: Any) -> None:
     """Edit message with MarkdownV2, falling back to plain text on failure.
 
     Accepts either a CallbackQuery (edit_message_text) or a Message (edit_text).
+    RetryAfter is absorbed (not re-raised) because callback edits are best-effort;
+    re-raising causes "Unhandled bot error" in callback handlers.
     """
     kwargs.setdefault("link_preview_options", NO_LINK_PREVIEW)
     # Message.edit_text vs CallbackQuery.edit_message_text
@@ -161,13 +186,16 @@ async def safe_edit(target: Any, text: str, **kwargs: Any) -> None:
             parse_mode="MarkdownV2",
             **kwargs,
         )
-    except RetryAfter:
-        raise
+    except RetryAfter as e:
+        logger.debug("Flood control on edit, skipping (retry in %ss)", e.retry_after)
     except TelegramError:
         try:
             await edit_fn(strip_mdv2(text), **kwargs)
-        except RetryAfter:
-            raise
+        except RetryAfter as e:
+            logger.debug(
+                "Flood control on edit fallback, skipping (retry in %ss)",
+                e.retry_after,
+            )
         except TelegramError as e:
             logger.warning("Failed to edit message: %s", e)
 
@@ -198,4 +226,5 @@ async def safe_send(
         except RetryAfter:
             raise
         except TelegramError as e:
+            _check_thread_not_found(e, kwargs)
             logger.warning("Failed to send message to %s: %s", chat_id, e)

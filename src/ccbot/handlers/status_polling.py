@@ -53,7 +53,7 @@ from .interactive_ui import (
 )
 from .cleanup import clear_topic_state
 from .message_queue import enqueue_status_update, get_message_queue
-from .message_sender import rate_limit_send_message
+from .message_sender import pop_stale_thread_ids, rate_limit_send_message
 from .recovery_callbacks import build_recovery_keyboard
 from .topic_emoji import rename_topic, update_topic_emoji
 
@@ -749,6 +749,28 @@ async def status_poll_loop(bot: Bot) -> None:
     _error_streak = 0
     while True:
         try:
+            # Clean up threads flagged as stale by message_sender
+            stale = pop_stale_thread_ids()
+            if stale:
+                for user_id, thread_id, wid in list(
+                    session_manager.iter_thread_bindings()
+                ):
+                    if thread_id in stale:
+                        w = await tmux_manager.find_window_by_id(wid)
+                        if w:
+                            await tmux_manager.kill_window(w.window_id)
+                        session_manager.unbind_thread(user_id, thread_id)
+                        await clear_topic_state(
+                            user_id, thread_id, bot, window_id=wid
+                        )
+                        logger.info(
+                            "Cleaned up stale thread %d (thread not found) "
+                            "for user %d, window %s",
+                            thread_id,
+                            user_id,
+                            wid,
+                        )
+
             # Periodic topic existence probe
             now = time.monotonic()
             if now - last_topic_check >= TOPIC_CHECK_INTERVAL:

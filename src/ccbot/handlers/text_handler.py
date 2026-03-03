@@ -191,13 +191,23 @@ async def _handle_unbound_topic(
     user_data: dict | None,
     message: Message,
 ) -> bool:
-    """Show window picker or directory browser for an unbound topic.
+    """Auto-create session, show window picker, or directory browser for an unbound topic.
 
     Returns True if the topic is unbound (handled), False if already bound.
+    Priority: default_dir auto-create > window picker > directory browser.
     """
     window_id = session_manager.get_window_for_thread(user_id, thread_id)
     if window_id is not None:
         return False
+
+    # When default_dir is set, always auto-create — skip the window picker.
+    # The user configured a default directory to avoid prompts on new topics.
+    from ..config import config
+
+    if config.default_dir:
+        return await _auto_create_session(
+            user_id, thread_id, text, message, config.default_dir
+        )
 
     all_windows = await tmux_manager.list_windows()
     bound_ids = {
@@ -231,14 +241,7 @@ async def _handle_unbound_topic(
         await safe_reply(message, msg_text, reply_markup=keyboard)
         return True
 
-    # No unbound windows — auto-create if default_dir set, else show browser
-    from ..config import config
-
-    if config.default_dir:
-        return await _auto_create_session(
-            user_id, thread_id, text, message, config.default_dir
-        )
-
+    # No unbound windows and no default_dir — show directory browser
     logger.info(
         "Unbound topic: showing directory browser (user=%d, thread=%d)",
         user_id,
