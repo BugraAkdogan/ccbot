@@ -55,6 +55,48 @@ If you are starting from scratch:
 
 The `start` command creates the tmux session/window if they do not exist, so no manual tmux bootstrap is required.
 
+## Testing
+
+CCBot has three test tiers:
+
+| Tier        | Command                 | Time     | Requirements      |
+| ----------- | ----------------------- | -------- | ----------------- |
+| Unit        | `make test`             | ~10s     | None (all mocked) |
+| Integration | `make test-integration` | ~7s      | tmux              |
+| E2E         | `make test-e2e`         | ~3-4 min | tmux + agent CLIs |
+
+`make check` runs unit + integration tests together with formatting, linting, and type checking.
+
+### E2E Tests
+
+End-to-end tests exercise the full lifecycle: inject fake Telegram updates → real PTB application → real tmux windows → real agent CLI processes → intercept Bot API responses. Each provider's tests are skipped automatically if its CLI is not installed.
+
+**Prerequisites:**
+
+- tmux installed and in PATH
+- One or more agent CLIs installed and authenticated: `claude`, `codex`, `gemini`
+
+**Test coverage per provider:**
+
+| Provider | Tests | Scenarios                                                                                                                                                    |
+| -------- | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Claude   | 9     | Lifecycle, `/sessions`, `/screenshot`, `/help` forwarding, recovery (fresh + continue), status transitions, multi-topic isolation, notification mode cycling |
+| Codex    | 3     | Lifecycle, command forwarding, recovery                                                                                                                      |
+| Gemini   | 3     | Lifecycle, command forwarding, recovery                                                                                                                      |
+
+**How it works:** The Bot API HTTP layer is mocked — fake `Update` objects are injected via `app.process_update()` and all outgoing API calls are intercepted and recorded for assertions. The tests drive through the full topic binding flow (directory browser → provider picker → mode select → window creation) and verify agent processes launch, messages are forwarded, and responses are delivered.
+
+**Running:**
+
+```bash
+make test-e2e                                         # All providers
+uv run pytest tests/e2e/test_claude_lifecycle.py -v   # Claude only
+uv run pytest tests/e2e/test_codex_lifecycle.py -v    # Codex only
+uv run pytest tests/e2e/test_gemini_lifecycle.py -v   # Gemini only
+```
+
+The tests create an isolated `ccbot-e2e` tmux session that does not interfere with a running `ccbot` instance. Safe to run from a tmux window.
+
 ## Configuration
 
 All settings accept both CLI flags and environment variables. CLI flags take precedence. `TELEGRAM_BOT_TOKEN` is env-only for security (flags are visible in `ps`).
@@ -163,11 +205,11 @@ CCBot supports multiple agent CLI backends. Each Telegram topic can use a differ
 
 ### Supported Providers
 
-| Provider    | CLI Command | Hook Events         | Status Detection                   |
-| ----------- | ----------- | ------------------- | ---------------------------------- |
-| Claude Code | `claude`    | Yes (7 event types) | Hook events + pyte VT100 + spinner |
+| Provider    | CLI Command | Hook Events         | Status Detection                                          |
+| ----------- | ----------- | ------------------- | --------------------------------------------------------- |
+| Claude Code | `claude`    | Yes (7 event types) | Hook events + pyte VT100 + spinner                        |
 | Codex CLI   | `codex`     | No                  | pyte VT100 interactive UI + transcript activity heuristic |
-| Gemini CLI  | `gemini`    | No                  | Pane title + interactive UI        |
+| Gemini CLI  | `gemini`    | No                  | Pane title + interactive UI                               |
 
 ### Choosing a Provider
 

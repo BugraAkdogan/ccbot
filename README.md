@@ -152,7 +152,18 @@ Open your Telegram group, create a new topic, send a message — a directory bro
 
 ## Documentation
 
-See **[docs/guides.md](docs/guides.md)** for CLI reference, configuration, upgrading, multi-instance setup, session recovery, and more.
+See **[docs/guides.md](docs/guides.md)** for CLI reference, configuration, upgrading, multi-instance setup, session recovery, testing, and more.
+
+## Development
+
+```bash
+git clone https://github.com/alexei-led/ccbot.git
+cd ccbot
+uv sync --extra dev
+
+make check        # fmt + lint + typecheck + unit + integration tests
+make test-e2e     # E2E tests (requires agent CLIs, see docs/guides.md)
+```
 
 ## Acknowledgments
 

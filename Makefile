@@ -1,4 +1,4 @@
-.PHONY: fmt lint test test-integration test-all typecheck check install dev build clean
+.PHONY: fmt lint test test-integration test-e2e test-all typecheck check install dev build clean
 
 fmt:
 	uv run ruff format src/ tests/
@@ -10,13 +10,16 @@ typecheck:
 	uv run pyright src/ccbot/
 
 test:
-	uv run pytest tests/ -m "not integration"
+	uv run pytest tests/ -m "not integration and not e2e"
 
 test-integration:
 	uv run pytest tests/integration/ -v
 
+test-e2e:
+	uv run pytest tests/e2e/ -v --timeout=300
+
 test-all:
-	uv run pytest tests/ -v
+	uv run pytest tests/ -v -m "not e2e"
 
 check: fmt lint typecheck test test-integration
 

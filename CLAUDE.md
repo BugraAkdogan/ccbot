@@ -7,11 +7,14 @@ Tech stack: Python, python-telegram-bot, tmux, uv.
 ## Common Commands
 
 ```bash
-make check                            # Run all: fmt, lint, typecheck, test
+make check                            # Run all: fmt, lint, typecheck, test, integration
 make fmt                              # Format code
 make lint                             # Lint — MUST pass before committing
 make typecheck                        # Type check — MUST be 0 errors before committing
-make test                             # Run test suite
+make test                             # Unit tests (excludes integration and e2e)
+make test-integration                 # Integration tests (real tmux, filesystem)
+make test-e2e                         # E2E tests (real agent CLIs, ~3-4 min)
+make test-all                         # All tests except e2e
 ./scripts/restart.sh start            # Start local dev instance in tmux ccbot:__main__
 ./scripts/restart.sh restart          # Restart local dev instance (Ctrl-C in control pane)
 ./scripts/restart.sh stop             # Stop local dev instance (Ctrl-\ in control pane)
